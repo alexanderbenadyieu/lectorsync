@@ -170,16 +170,8 @@ def wrap_process_file(file_obj, tasks):
                 results.get('translated_text', ''),
                 results.get('classification_result', ''))
 
-css = """
-    body { font-family: 'Arial'; }
-    .gradio-container { max-width: 800px; margin: auto; padding: 20px; }
-    .input, .output { border-radius: 10px; box-shadow: 0 4px 14px 0 rgba(0,0,0,0.10); }
-    .label { color: #4A4A4A; font-weight: bold; font-size: 14px; }
-    button { background-color: #1a73e8; color: white; border: none; border-radius: 4px; padding: 10px 20px; cursor: pointer; }
-    """
-
 def create_gradio_interface():
-    with gr.Blocks(css=css) as demo:
+    with gr.Blocks(theme="huggingface") as demo:
         gr.Markdown("# LectorSync 1.0")
         gr.Markdown("## Upload your file and select the tasks:")
         with gr.Row():

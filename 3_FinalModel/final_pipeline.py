@@ -1,31 +1,52 @@
+python
+Copy code
 import logging
 import os
 import warnings
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoModelForSpeechSeq2Seq, MarianMTModel, MarianTokenizer, AutoModelForSequenceClassification, AutoProcessor, pipeline
+from transformers import (
+    AutoTokenizer, AutoModelForSeq2SeqLM, AutoModelForSpeechSeq2Seq, 
+    MarianMTModel, MarianTokenizer, AutoModelForSequenceClassification, 
+    AutoProcessor, pipeline
+)
 import torch
 from pydub import AudioSegment
 
+# Suppress user warnings from libraries
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Preload models globally
-
+# Set device and data type based on CUDA availability
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-# Load all necessary models and tokenizers
+# Preload models and tokenizers for summarization
 summarizer_tokenizer = AutoTokenizer.from_pretrained('cranonieu2021/pegasus-on-lectures')
-summarizer_model = AutoModelForSeq2SeqLM.from_pretrained("cranonieu2021/pegasus-on-lectures", torch_dtype=torch_dtype).to(device)
+summarizer_model = AutoModelForSeq2SeqLM.from_pretrained(
+    "cranonieu2021/pegasus-on-lectures", torch_dtype=torch_dtype).to(device)
 
+# Preload models and tokenizers for translation
 translator_tokenizer = MarianTokenizer.from_pretrained("sfarjebespalaia/enestranslatorforsummaries")
-translator_model = MarianMTModel.from_pretrained("sfarjebespalaia/enestranslatorforsummaries", torch_dtype=torch_dtype).to(device)
+translator_model = MarianMTModel.from_pretrained(
+    "sfarjebespalaia/enestranslatorforsummaries", torch_dtype=torch_dtype).to(device)
 
+# Preload models and tokenizers for classification
 classifier_tokenizer = AutoTokenizer.from_pretrained("gserafico/roberta-base-finetuned-classifier-roberta1")
-classifier_model = AutoModelForSequenceClassification.from_pretrained("gserafico/roberta-base-finetuned-classifier-roberta1", torch_dtype=torch_dtype).to(device)
+classifier_model = AutoModelForSequenceClassification.from_pretrained(
+    "gserafico/roberta-base-finetuned-classifier-roberta1", torch_dtype=torch_dtype).to(device)
 
 
 def convert_mp3_to_wav(mp3_file_path):
+    """
+    Converts an MP3 file to WAV format.
+
+    Parameters:
+    mp3_file_path (str): Path to the MP3 file.
+
+    Returns:
+    str: Path to the created WAV file.
+    """
     try:
         wav_file_path = mp3_file_path.replace(".mp3", ".wav")
         audio = AudioSegment.from_mp3(mp3_file_path)
@@ -37,6 +58,15 @@ def convert_mp3_to_wav(mp3_file_path):
         raise
 
 def transcribe_audio(audio_file_path):
+    """
+    Transcribes audio from a WAV file using a speech-to-text model.
+
+    Parameters:
+    audio_file_path (str): Path to the WAV file.
+
+    Returns:
+    str: Transcribed text.
+    """
     try:
         model_id = "openai/whisper-large-v3"
         model = AutoModelForSpeechSeq2Seq.from_pretrained(model_id, torch_dtype=torch_dtype, use_safetensors=True)
@@ -51,6 +81,15 @@ def transcribe_audio(audio_file_path):
         raise
 
 def load_and_process_input(file_path):
+    """
+    Loads and processes an input file based on its extension.
+
+    Parameters:
+    file_path (str): Path to the file.
+
+    Returns:
+    str: Processed file content or transcription.
+    """
     extension = os.path.splitext(file_path)[-1].lower()
     try:
         if extension == ".txt":
@@ -68,26 +107,38 @@ def load_and_process_input(file_path):
         raise
 
 def process_text(text, summarization=False, translation=False, classification=False):
-    results = {}
-    intermediate_text = text  # This will hold either the original text or the summary
+    """
+    Processes text for summarization, translation, and classification based on flags set.
 
+    Parameters:
+    text (str): Input text to process.
+    summarization (bool): Flag to trigger summarization.
+    translation (bool): Flag to trigger translation.
+    classification (bool): Flag to trigger classification.
+
+    Returns:
+    dict: A dictionary with keys for each processing type that was performed.
+    """
+    results = {}
+    intermediate_text = text  # Start with the original text for processing
+
+    # Summary generation
     if summarization:
-        # Perform summarization
         inputs = summarizer_tokenizer(intermediate_text, max_length=1024, return_tensors="pt", truncation=True)
         summary_ids = summarizer_model.generate(inputs.input_ids, max_length=150, min_length=40, length_penalty=2.0, num_beams=4, early_stopping=True)
         summary_text = summarizer_tokenizer.decode(summary_ids[0], skip_special_tokens=True)
         results['summarized_text'] = summary_text
-        intermediate_text = summary_text  # Update intermediate text to be the summary for further processing
+        intermediate_text = summary_text  # Update intermediate text if summary is used for further processing
 
+    # Text translation
     if translation:
-        # Translate the intermediate text (which could be either the original text or the summary)
         tokenized_text = translator_tokenizer.prepare_seq2seq_batch([intermediate_text], return_tensors="pt")
         translated = translator_model.generate(**tokenized_text)
         translated_text = ' '.join(translator_tokenizer.decode(t, skip_special_tokens=True) for t in translated)
         results['translated_text'] = translated_text.strip()
 
+    # Text classification
     if classification:
-        # Classify the intermediate text (which could be either the original text or the summary)
         inputs = classifier_tokenizer(intermediate_text, return_tensors="pt", truncation=True, padding=True)
         with torch.no_grad():
             outputs = classifier_model(**inputs)
@@ -104,6 +155,12 @@ def process_text(text, summarization=False, translation=False, classification=Fa
     return results
 
 def display_results(results):
+    """
+    Displays the results of the text processing.
+
+    Parameters:
+    results (dict): Dictionary containing results from processing functions.
+    """
     if 'summarized_text' in results:
         print("Summarized Text:")
         print(results['summarized_text'])
@@ -115,8 +172,11 @@ def display_results(results):
         print(f"This text is classified under: {results['classification_result']}")
 
 def main():
+    """
+    Main function to run the script. Handles user input and calls other functions.
+    """
     print("Loading models, please wait...")
-    
+
     file_path = input("Enter the path to your text, mp3, or wav file: ")
     if not os.path.isfile(file_path):
         print("File does not exist. Please enter a valid file path.")
